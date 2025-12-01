@@ -107,6 +107,10 @@ if (UREDIS_BUILD_EXAMPLES)
     add_executable(uredis_cluster_example examples/main_cluster.cpp)
     target_link_libraries(uredis_cluster_example PRIVATE uredis)
     target_compile_definitions(uredis_cluster_example PRIVATE DEV_STAGE=${DEV_STAGE})
+
+    add_executable(uredis_redlock_example examples/main_redlock.cpp)
+    target_link_libraries(uredis_redlock_example PRIVATE uredis)
+    target_compile_definitions(uredis_redlock_example PRIVATE DEV_STAGE=${DEV_STAGE})
 endif ()
 
 install(TARGETS uredis
