@@ -55,6 +55,9 @@ nav:
       - Pub/Sub (RedisSubscriber): pubsub.md
       - RedisBus: bus.md
       - Reflection helpers: reflect.md
+      - Sentinel Support: sentinel.md
+      - Redis Cluster Client: cluster.md
+      - Redlock Distributed Locks: redlock.md
   - Internals:
       - RESP Parser & Types: internals.md
   - Examples: examples.md
