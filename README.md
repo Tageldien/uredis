@@ -3,15 +3,18 @@
 uRedis is a small async Redis client library built on top of
 [uvent](https://github.com/Usub-development/uvent).
 
-It gives you:
+It provides:
 
-- `RedisClient` – single async connection with a small typed API.
+- `RedisClient` – single async connection with RESP parsing and a small typed API.
 - `RedisPool` – round-robin pool of `RedisClient` instances.
-- `RedisSubscriber` – low-level SUBSCRIBE/PSUBSCRIBE client.
-- `RedisBus` – high-level resilient pub/sub bus with auto-reconnect.
+- `RedisSubscriber` – low-level SUBSCRIBE / PSUBSCRIBE client.
+- `RedisBus` – high-level resilient pub/sub bus with auto-reconnect and resubscription.
 - `RedisValue` / `RedisResult` / `RedisError` – result and error types.
 - `RespParser` – incremental RESP parser.
-- `reflect` helpers – mapping C++ aggregates to Redis hashes using **ureflect**.
+- `reflect` helpers – map C++ aggregates to Redis hashes (`HSET`/`HGETALL`) using **ureflect**.
+- (optional) **Sentinel / master discovery** – connect to Redis master via Sentinel and auto-reconnect after failover.
+- (optional) **Cluster client** – client that routes commands by hash slot across Redis Cluster nodes.
+- (optional) **Redlock** – distributed locks across multiple Redis instances.
 
 Documentation: **https://usub-development.github.io/uredis/**
 
@@ -20,7 +23,7 @@ Documentation: **https://usub-development.github.io/uredis/**
 ## Features
 
 - Async, coroutine-based API (`task::Awaitable<>`).
-- RESP parser with incremental feeding.
+- RESP parser with incremental feeding (no hiredis, parser is implemented directly in C++).
 - Simple error model:
   - `Io` – connection / timeout / write/read failures
   - `Protocol` – malformed / unexpected reply
