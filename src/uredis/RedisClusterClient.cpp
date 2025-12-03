@@ -1,6 +1,7 @@
 #include "uredis/RedisClusterClient.h"
 
 #include <charconv>
+#include <chrono>
 
 #ifdef UREDIS_LOGS
 #include <ulog/ulog.h>
@@ -8,6 +9,8 @@
 
 namespace usub::uredis
 {
+    using namespace std::chrono_literals;
+
     RedisClusterClient::RedisClusterClient(RedisClusterConfig cfg)
         : cfg_(std::move(cfg))
     {
@@ -161,11 +164,6 @@ namespace usub::uredis
 
     task::Awaitable<RedisResult<void>> RedisClusterClient::initial_discovery()
     {
-        if (this->connected_.load(std::memory_order_acquire))
-        {
-            co_return RedisResult<void>{};
-        }
-
         if (this->cfg_.seeds.empty())
         {
             RedisError err{
@@ -313,8 +311,22 @@ namespace usub::uredis
                 seed.port);
 #endif
 
-            co_await this->prewarm_pools();
-            this->connected_.store(true, std::memory_order_release);
+            for (const auto& node : this->nodes_)
+            {
+                for (std::size_t i = 0; i < this->cfg_.max_connections_per_node; ++i)
+                {
+                    auto cli = std::make_shared<RedisClient>(node->cfg);
+                    auto c = co_await cli->connect();
+                    if (!c)
+                    {
+                        node->live_count.fetch_sub(1, std::memory_order_relaxed);
+                        break;
+                    }
+                    node->idle.try_enqueue(cli);
+                    node->live_count.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+
             co_return RedisResult<void>{};
         }
 
@@ -325,51 +337,46 @@ namespace usub::uredis
         co_return std::unexpected(err);
     }
 
-    task::Awaitable<void> RedisClusterClient::prewarm_pools()
+    task::Awaitable<RedisResult<void>> RedisClusterClient::connect()
     {
-        std::vector<std::shared_ptr<Node>> snapshot;
+        if (this->init_finished_)
         {
-            auto guard = co_await this->mutex_.lock();
-            snapshot = this->nodes_;
+            co_return *this->init_result_;
         }
 
-        for (auto& node : snapshot)
+        bool we_are_initializer = false;
+
         {
-            auto cur = node->live_count.load(std::memory_order_relaxed);
-            if (cur >= this->cfg_.max_connections_per_node)
-                continue;
+            auto guard = co_await this->init_mutex_.lock();
 
-            for (std::size_t i = cur; i < this->cfg_.max_connections_per_node; ++i)
+            if (this->init_finished_)
             {
-                auto cli = std::make_shared<RedisClient>(node->cfg);
-                auto c = co_await cli->connect();
-                if (!c)
-                {
-#ifdef UREDIS_LOGS
-                    auto& e = c.error();
-                    usub::ulog::warn(
-                        "RedisClusterClient::prewarm_pools: connect to {}:{} failed: {}",
-                        node->cfg.host,
-                        node->cfg.port,
-                        e.message);
-#endif
-                    break;
-                }
+                co_return *this->init_result_;
+            }
 
-                if (!node->idle.try_enqueue(cli))
-                {
-                    break;
-                }
-                node->live_count.fetch_add(1, std::memory_order_relaxed);
+            if (!this->init_started_)
+            {
+                this->init_started_ = true;
+                we_are_initializer = true;
             }
         }
 
-        co_return;
-    }
+        if (!we_are_initializer)
+        {
+            co_await this->init_event_.wait();
+            co_return *this->init_result_;
+        }
 
-    task::Awaitable<RedisResult<void>> RedisClusterClient::connect()
-    {
-        co_return co_await this->initial_discovery();
+        auto res = co_await this->initial_discovery();
+
+        {
+            auto guard = co_await this->init_mutex_.lock();
+            this->init_result_ = res;
+            this->init_finished_ = true;
+            this->init_event_.set();
+        }
+
+        co_return res;
     }
 
     task::Awaitable<RedisResult<std::shared_ptr<RedisClient>>>
@@ -439,8 +446,6 @@ namespace usub::uredis
     RedisClusterClient::acquire_client_for_node_locked(
         const std::shared_ptr<Node>& node)
     {
-        using namespace std::chrono_literals;
-
         for (;;)
         {
             std::shared_ptr<RedisClient> client;
@@ -486,7 +491,7 @@ namespace usub::uredis
                 }
             }
 
-            co_await system::this_coroutine::sleep_for(100us);
+            co_await usub::uvent::system::this_coroutine::sleep_for(100us);
         }
     }
 
@@ -516,6 +521,10 @@ namespace usub::uredis
     task::Awaitable<RedisResult<RedisClusterClient::PooledClient>>
     RedisClusterClient::acquire_client_for_slot(int slot)
     {
+        auto init = co_await this->connect();
+        if (!init)
+            co_return std::unexpected(init.error());
+
         if (slot < 0 || slot >= 16384)
         {
             RedisError err{
@@ -554,6 +563,10 @@ namespace usub::uredis
     task::Awaitable<RedisResult<RedisClusterClient::PooledClient>>
     RedisClusterClient::acquire_client_for_any()
     {
+        auto init = co_await this->connect();
+        if (!init)
+            co_return std::unexpected(init.error());
+
         std::shared_ptr<Node> node;
 
         {
@@ -575,12 +588,9 @@ namespace usub::uredis
     task::Awaitable<RedisResult<RedisClusterClient::PooledClient>>
     RedisClusterClient::acquire_client_for_key(std::string_view key)
     {
-        if (this->nodes_.empty())
-        {
-            auto d = co_await this->initial_discovery();
-            if (!d)
-                co_return std::unexpected(d.error());
-        }
+        auto init = co_await this->connect();
+        if (!init)
+            co_return std::unexpected(init.error());
 
         if (key.empty())
         {
@@ -646,12 +656,9 @@ namespace usub::uredis
     task::Awaitable<RedisResult<std::shared_ptr<RedisClient>>>
     RedisClusterClient::get_client_for_key(std::string_view key)
     {
-        if (this->nodes_.empty())
-        {
-            auto d = co_await this->initial_discovery();
-            if (!d)
-                co_return std::unexpected(d.error());
-        }
+        auto init = co_await this->connect();
+        if (!init)
+            co_return std::unexpected(init.error());
 
         if (key.empty())
         {
@@ -689,12 +696,9 @@ namespace usub::uredis
     task::Awaitable<RedisResult<std::shared_ptr<RedisClient>>>
     RedisClusterClient::get_any_client()
     {
-        if (this->nodes_.empty())
-        {
-            auto d = co_await this->initial_discovery();
-            if (!d)
-                co_return std::unexpected(d.error());
-        }
+        auto init = co_await this->connect();
+        if (!init)
+            co_return std::unexpected(init.error());
 
         std::string host;
         std::uint16_t port{0};
@@ -720,12 +724,9 @@ namespace usub::uredis
     task::Awaitable<RedisResult<std::shared_ptr<RedisClient>>>
     RedisClusterClient::get_client_for_slot(int slot)
     {
-        if (this->nodes_.empty())
-        {
-            auto d = co_await this->initial_discovery();
-            if (!d)
-                co_return std::unexpected(d.error());
-        }
+        auto init = co_await this->connect();
+        if (!init)
+            co_return std::unexpected(init.error());
 
         std::string host;
         std::uint16_t port{0};
@@ -760,12 +761,9 @@ namespace usub::uredis
         std::string_view cmd,
         std::span<const std::string_view> args)
     {
-        if (this->nodes_.empty())
-        {
-            auto d = co_await this->initial_discovery();
-            if (!d)
-                co_return std::unexpected(d.error());
-        }
+        auto init = co_await this->connect();
+        if (!init)
+            co_return std::unexpected(init.error());
 
         std::string key_copy;
         if (!args.empty())
@@ -775,7 +773,7 @@ namespace usub::uredis
 
         for (int attempt = 0; attempt < this->cfg_.max_redirections; ++attempt)
         {
-            RedisClusterClient::PooledClient pc;
+            PooledClient pc;
 
             if (args.empty())
             {
