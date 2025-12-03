@@ -15,10 +15,10 @@ task::Awaitable<void> cluster_example()
 
     RedisClusterConfig cfg;
     cfg.seeds = {
-        {"127.0.0.1", 7000},
-        {"127.0.0.1", 7001},
+        {"127.0.0.1", 7000}
     };
     cfg.max_redirections = 8;
+    cfg.max_connections_per_node = 4;
 
     RedisClusterClient cluster{cfg};
 
@@ -33,49 +33,125 @@ task::Awaitable<void> cluster_example()
     }
     info("cluster_example: cluster discovery OK");
 
+    {
+        std::string_view key = "user:42";
+        std::string_view value = "Kirill";
+
+        info("cluster_example: SET {} = '{}'", key, value);
+
+        std::array<std::string_view, 2> args{key, value};
+        auto set_res = co_await cluster.command("SET",
+                                                std::span<const std::string_view>(args.data(), args.size()));
+
+        if (!set_res)
+        {
+            const auto& e = set_res.error();
+            error("cluster_example: SET failed: category={} message={}",
+                  static_cast<int>(e.category), e.message);
+            co_return;
+        }
+
+        const RedisValue& v = *set_res;
+        if (!v.is_simple_string())
+        {
+            error("cluster_example: SET: unexpected reply type (type={})",
+                  static_cast<int>(v.type));
+            co_return;
+        }
+
+        info("cluster_example: SET reply = '{}'", v.as_string());
+    }
+
+    {
+        std::string_view key = "user:42";
+        info("cluster_example: GET {}", key);
+
+        std::array<std::string_view, 1> args{key};
+        auto get_res = co_await cluster.command("GET",
+                                                std::span<const std::string_view>(args.data(), args.size()));
+
+        if (!get_res)
+        {
+            const auto& e = get_res.error();
+            error("cluster_example: GET failed: category={} message={}",
+                  static_cast<int>(e.category), e.message);
+            co_return;
+        }
+
+        const RedisValue& v = *get_res;
+        if (v.is_null())
+        {
+            info("cluster_example: GET {} -> <nil>", key);
+        }
+        else if (v.is_bulk_string() || v.is_simple_string())
+        {
+            info("cluster_example: GET {} -> '{}'", key, v.as_string());
+        }
+        else
+        {
+            error("cluster_example: GET: unexpected reply type (type={})",
+                  static_cast<int>(v.type));
+        }
+    }
+
+    info("cluster_example: done");
+    co_return;
+}
+
+task::Awaitable<void> cluster_raw_client_example()
+{
+    RedisClusterConfig cfg;
+    cfg.seeds = {
+        {"127.0.0.1", 7000}
+    };
+
+    RedisClusterClient cluster{cfg};
+
+    auto c = co_await cluster.connect();
+    if (!c)
+    {
+        const auto& e = c.error();
+        error("cluster_raw_client_example: connect failed: category={} message={}",
+              static_cast<int>(e.category), e.message);
+        co_return;
+    }
+
     auto client_res = co_await cluster.get_client_for_key("user:42");
     if (!client_res)
     {
         const auto& e = client_res.error();
-        error("cluster_example: get_client_for_key failed: category={} message={}",
+        error("cluster_raw_client_example: get_client_for_key failed: category={} message={}",
               static_cast<int>(e.category), e.message);
         co_return;
     }
-    auto client = client_res.value();
 
-    info("cluster_example: using node {}:{} for key 'user:42'",
+    auto client = client_res.value();
+    info("cluster_raw_client_example: node {}:{}",
          client->config().host, client->config().port);
 
     auto set_res = co_await client->set("user:42", "Kirill");
     if (!set_res)
     {
         const auto& e = set_res.error();
-        error("cluster_example: SET failed: category={} message={}",
+        error("cluster_raw_client_example: SET failed: category={} message={}",
               static_cast<int>(e.category), e.message);
         co_return;
     }
-    info("cluster_example: SET user:42 = 'Kirill' OK");
 
     auto get_res = co_await client->get("user:42");
     if (!get_res)
     {
         const auto& e = get_res.error();
-        error("cluster_example: GET failed: category={} message={}",
+        error("cluster_raw_client_example: GET failed: category={} message={}",
               static_cast<int>(e.category), e.message);
         co_return;
     }
 
-    const auto& opt = get_res.value();
-    if (opt.has_value())
-    {
-        info("cluster_example: GET user:42 -> '{}'", *opt);
-    }
+    if (get_res->has_value())
+        info("cluster_raw_client_example: GET user:42 -> '{}'", **get_res);
     else
-    {
-        info("cluster_example: GET user:42 -> <nil>");
-    }
+        info("cluster_raw_client_example: GET user:42 -> <nil>");
 
-    info("cluster_example: done");
     co_return;
 }
 

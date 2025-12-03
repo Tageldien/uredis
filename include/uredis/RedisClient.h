@@ -47,6 +47,11 @@ namespace usub::uredis
 
         task::Awaitable<RedisResult<void>> connect();
 
+        inline bool connected() const noexcept
+        {
+            return this->connected_;
+        }
+
         task::Awaitable<RedisResult<RedisValue>> command(
             std::string_view cmd,
             std::span<const std::string_view> args);
