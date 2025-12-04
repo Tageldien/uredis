@@ -11,6 +11,13 @@ namespace usub::uredis
 {
     using namespace std::chrono_literals;
 
+    static bool is_cluster_disabled_error(const RedisError& e)
+    {
+        if (e.category != RedisErrorCategory::ServerReply)
+            return false;
+        return e.message.find("cluster support disabled") != std::string::npos;
+    }
+
     RedisClusterClient::RedisClusterClient(RedisClusterConfig cfg)
         : cfg_(std::move(cfg))
     {
@@ -199,14 +206,69 @@ namespace usub::uredis
 
             if (!resp)
             {
-#ifdef UREDIS_LOGS
                 const auto& e = resp.error();
+
+#ifdef UREDIS_LOGS
                 usub::ulog::warn(
                     "RedisClusterClient::initial_discovery: CLUSTER SLOTS on {}:{} failed: {}",
                     seed.host,
                     seed.port,
                     e.message);
 #endif
+
+                if (is_cluster_disabled_error(e))
+                {
+                    {
+                        auto guard = co_await this->mutex_.lock();
+
+                        if (this->nodes_.empty())
+                        {
+                            for (const auto& s : this->cfg_.seeds)
+                            {
+                                RedisConfig ncfg;
+                                ncfg.host = s.host;
+                                ncfg.port = s.port;
+                                ncfg.db = 0;
+                                ncfg.username = this->cfg_.username;
+                                ncfg.password = this->cfg_.password;
+                                ncfg.connect_timeout_ms = this->cfg_.connect_timeout_ms;
+                                ncfg.io_timeout_ms = this->cfg_.io_timeout_ms;
+
+                                auto node = std::make_shared<Node>(ncfg, this->cfg_.max_connections_per_node);
+                                this->nodes_.push_back(node);
+                            }
+                        }
+
+                        this->slot_to_node_.fill(0);
+                        this->standalone_mode_ = true;
+                    }
+
+#ifdef UREDIS_LOGS
+                    usub::ulog::info(
+                        "RedisClusterClient::initial_discovery: cluster disabled on {}:{}, fallback to standalone pool mode",
+                        seed.host,
+                        seed.port);
+#endif
+
+                    for (const auto& node : this->nodes_)
+                    {
+                        for (std::size_t i = 0; i < this->cfg_.max_connections_per_node; ++i)
+                        {
+                            auto cli = std::make_shared<RedisClient>(node->cfg);
+                            auto c = co_await cli->connect();
+                            if (!c)
+                            {
+                                node->live_count.fetch_sub(1, std::memory_order_relaxed);
+                                break;
+                            }
+                            node->idle.try_enqueue(cli);
+                            node->live_count.fetch_add(1, std::memory_order_relaxed);
+                        }
+                    }
+
+                    co_return RedisResult<void>{};
+                }
+
                 continue;
             }
 

@@ -11,6 +11,7 @@
 #include <optional>
 #include <array>
 #include <unordered_map>
+#include <atomic>
 
 #include "uvent/Uvent.h"
 #include "uvent/sync/AsyncEvent.h"
@@ -44,6 +45,7 @@ namespace usub::uredis
     {
     public:
         explicit RedisClient(RedisConfig cfg);
+        ~RedisClient();
 
         task::Awaitable<RedisResult<void>> connect();
 
@@ -139,6 +141,7 @@ namespace usub::uredis
         sync::AsyncMutex write_mutex_;
         bool reader_started_{false};
         bool closing_{false};
+        std::atomic<bool> reader_stopped_{false};
 
         task::Awaitable<void> reader_loop();
 

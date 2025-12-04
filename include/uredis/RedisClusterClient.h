@@ -125,6 +125,7 @@ namespace usub::uredis
         bool init_started_{false};
         bool init_finished_{false};
         std::optional<RedisResult<void>> init_result_;
+        bool standalone_mode_{false};
 
         static std::string_view extract_hash_tag(std::string_view key);
         static std::uint16_t calc_slot(std::string_view key);

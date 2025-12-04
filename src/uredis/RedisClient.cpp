@@ -2,6 +2,8 @@
 
 #include <charconv>
 #include <cstring>
+#include <thread>
+#include <chrono>
 
 #ifdef UREDIS_LOGS
 #include <ulog/ulog.h>
@@ -14,6 +16,20 @@ namespace usub::uredis
     RedisClient::RedisClient(RedisConfig cfg)
         : config_(std::move(cfg))
     {
+    }
+
+    RedisClient::~RedisClient()
+    {
+        this->closing_ = true;
+        this->socket_.shutdown();
+
+        if (this->reader_started_)
+        {
+            while (!this->reader_stopped_.load(std::memory_order_acquire))
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+        }
     }
 
     task::Awaitable<RedisResult<void>> RedisClient::connect()
@@ -48,6 +64,7 @@ namespace usub::uredis
         if (!this->reader_started_)
         {
             this->reader_started_ = true;
+            this->reader_stopped_.store(false, std::memory_order_release);
             system::co_spawn(this->reader_loop());
         }
 
@@ -270,6 +287,7 @@ namespace usub::uredis
 #ifdef UREDIS_LOGS
         ulog::info("RedisClient::reader_loop: stop");
 #endif
+        this->reader_stopped_.store(true, std::memory_order_release);
         co_return;
     }
 
@@ -472,7 +490,7 @@ namespace usub::uredis
 
         const auto& arr = v.as_array();
         std::unordered_map<std::string, std::string> out;
-        if (arr.size() & 1 != 0)
+        if ((arr.size() & 1) != 0)
         {
             RedisError err{RedisErrorCategory::Protocol, "HGETALL: odd array size"};
             co_return std::unexpected(err);
@@ -712,7 +730,7 @@ namespace usub::uredis
 
         const auto& arr = v.as_array();
         std::vector<std::pair<std::string, double>> out;
-        if (arr.size() & 1 != 0)
+        if ((arr.size() & 1) != 0)
         {
             RedisError err{RedisErrorCategory::Protocol, "ZRANGE: odd array size"};
             co_return std::unexpected(err);
